@@ -9,9 +9,9 @@ from torch import autograd
 from stable_baselines3.common.running_mean_std import RunningMeanStd
 
 class Discriminator(nn.Module):
-    def __init__(self, input_dim, hidden_dim, device):
+    def __init__(self, input_dim, hidden_dim, device, if_action_only=True):
         super(Discriminator, self).__init__()
-
+        self.if_action_only = if_action_only
         self.device = device
 
         self.trunk = nn.Sequential(

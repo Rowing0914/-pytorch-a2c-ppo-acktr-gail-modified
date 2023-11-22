@@ -105,7 +105,9 @@ def main():
 
     if args.gail:
         assert len(obs.shape) == 1
-        discr = gail.Discriminator(obs.shape[0] + envs.action_space.shape[0], 100, device)
+        # dim_input = envs.observation_space.shape[0] + envs.action_space.shape[0]
+        dim_input = obs.shape[0]
+        discr = gail.Discriminator(dim_input, 100, device)
         file_name = os.path.join(args.gail_experts_dir, "trajs_{}.pt".format(args.env_name.split('-')[0].lower()))
         
         expert_dataset = gail.ExpertDataset(file_name, num_trajectories=4, subsample_frequency=20)
@@ -116,9 +118,7 @@ def main():
             shuffle=True,
             drop_last=drop_last)
 
-    rollouts = RolloutStorage(args.num_steps, args.num_processes,
-                              envs.observation_space.shape, envs.action_space,
-                              actor_critic.recurrent_hidden_state_size)
+    rollouts = RolloutStorage(args.num_steps, args.num_processes, obs_shape, act_shape, actor_critic.recurrent_hidden_state_size)
 
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
