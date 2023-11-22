@@ -13,7 +13,7 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base=None, base_kwargs=None):
+    def __init__(self, obs_shape, act_sp_type="Box", act_shape=4, base=None, base_kwargs=None):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
@@ -27,15 +27,12 @@ class Policy(nn.Module):
 
         self.base = base(obs_shape[0], **base_kwargs)
 
-        if action_space.__class__.__name__ == "Discrete":
-            num_outputs = action_space.n
-            self.dist = Categorical(self.base.output_size, num_outputs)
-        elif action_space.__class__.__name__ == "Box":
-            num_outputs = action_space.shape[0]
-            self.dist = DiagGaussian(self.base.output_size, num_outputs)
-        elif action_space.__class__.__name__ == "MultiBinary":
-            num_outputs = action_space.shape[0]
-            self.dist = Bernoulli(self.base.output_size, num_outputs)
+        if act_sp_type == "Discrete":
+            self.dist = Categorical(self.base.output_size, act_shape)
+        elif act_sp_type == "Box":
+            self.dist = DiagGaussian(self.base.output_size, act_shape)
+        elif act_sp_type == "MultiBinary":
+            self.dist = Bernoulli(self.base.output_size, act_shape)
         else:
             raise NotImplementedError
 

@@ -31,7 +31,6 @@ def main():
         torch.backends.cudnn.deterministic = True
 
     import wandb
-    args.wandb = True
     if args.wandb:
         wandb.login()
         wandb.init(project="img-gen-rl", entity="rowing0914", name="gail", group="gail", dir="/tmp/wandb")
@@ -45,13 +44,40 @@ def main():
     torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
-    envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, args.log_dir, device, False)
+    # ================= mocap
+    from dm_control.suite import humanoid_CMU
+    import sys
+    sys.path.append("../merel-mocap-gail-modified/")
+    from mocap_gail.mujoco_dataset import Mujoco_Dset
 
-    actor_critic = Policy(
-        envs.observation_space.shape,
-        envs.action_space,
-        base_kwargs={'recurrent': args.recurrent_policy})
+    args.obs_only = True
+    env = humanoid_CMU.run()
+    
+    from run_collect_cmu_mocap import get_humanoid_cmu_obs
+    obs = get_humanoid_cmu_obs(env)
+    env.task.random.seed(args.seed)
+    dataset = Mujoco_Dset(expert_path=args.mocap_expert_path, traj_limitation=args.mocap_traj_limitation, obs_only=args.obs_only)
+    # ob_expert, ac_or_qpos_expert = dataset.get_next_batch(32)
+    ob_expert, ac_or_qpos_expert = dataset.obs[0], dataset.qpos[0]
+    print(ob_expert.shape, ac_or_qpos_expert.shape)
+
+    # # Set the Humanoid to the init position
+    qpos = ac_or_qpos_expert[0]  # qpos at t = 0
+    with env.physics.reset_context():
+        env.physics.data.qpos[:] = qpos[:63]
+        env.physics.data.qvel[:] = qpos[63:]
+    # ================= mocap
+    envs = env
+    
+    # envs = make_vec_envs(args.env_name, args.seed, args.num_processes, args.gamma, args.log_dir, device, False)
+    # obs_shape = envs.observation_space.shape
+    # act_sp_type = envs.action_space.__class__.__name__
+    # act_shape = envs.action_space.shape
+    obs_shape = obs.shape
+    act_sp_type = "Box"
+    ac_spec = env.action_spec()
+    act_shape = ac_spec.shape[0]
+    actor_critic = Policy(obs_shape, act_sp_type, act_shape, base_kwargs={'recurrent': args.recurrent_policy})
     actor_critic.to(device)
 
     if args.algo == 'a2c':
@@ -75,12 +101,11 @@ def main():
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
     elif args.algo == 'acktr':
-        agent = algo.A2C_ACKTR(
-            actor_critic, args.value_loss_coef, args.entropy_coef, acktr=True)
+        agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef, args.entropy_coef, acktr=True)
 
     if args.gail:
-        assert len(envs.observation_space.shape) == 1
-        discr = gail.Discriminator(envs.observation_space.shape[0] + envs.action_space.shape[0], 100, device)
+        assert len(obs.shape) == 1
+        discr = gail.Discriminator(obs.shape[0] + envs.action_space.shape[0], 100, device)
         file_name = os.path.join(args.gail_experts_dir, "trajs_{}.pt".format(args.env_name.split('-')[0].lower()))
         
         expert_dataset = gail.ExpertDataset(file_name, num_trajectories=4, subsample_frequency=20)
@@ -114,9 +139,7 @@ def main():
     for j in range(num_updates):
         if args.use_linear_lr_decay:
             # decrease learning rate linearly
-            utils.update_linear_schedule(
-                agent.optimizer, j, num_updates,
-                agent.optimizer.lr if args.algo == "acktr" else args.lr)
+            utils.update_linear_schedule(agent.optimizer, j, num_updates, agent.optimizer.lr if args.algo == "acktr" else args.lr)
 
         for step in range(args.num_steps):
             # Sample actions
